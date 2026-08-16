@@ -14,20 +14,16 @@ final class StatusController: NSObject, NSPopoverDelegate {
         super.init()
 
         if let button = item.button {
-            button.imagePosition = .imageLeading
-            button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            button.imagePosition = .noImage
             button.target = self
             button.action = #selector(togglePopover)
         }
 
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = false
         popover.appearance = NSAppearance(named: .aqua)
         popover.contentViewController = popoverController
         popover.delegate = self
-        popoverController.onSizeChange = { [weak self] size in
-            self?.popover.contentSize = size
-        }
 
         model.onChange = { [weak self] in
             self?.refresh()
@@ -38,11 +34,14 @@ final class StatusController: NSObject, NSPopoverDelegate {
 
     func refresh() {
         guard let button = item.button else { return }
-        let image = Theme.statusIcon(yaos: model.currentHexagram.yaos)
-        button.image = image
-        button.title = " \(model.statusBarText)"
-        popoverController.reload()
-        OverlayController.shared.refresh()
+        button.image = nil
+        button.attributedTitle = Theme.statusBarTitle(phase: model.phase, time: model.statusBarText)
+        if popover.isShown {
+            popoverController.reload()
+        }
+        if OverlayController.shared.isVisible {
+            OverlayController.shared.refresh()
+        }
     }
 
     @objc private func togglePopover() {
@@ -50,6 +49,7 @@ final class StatusController: NSObject, NSPopoverDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            popoverController.reload()
             popover.contentSize = popoverController.preferredSize
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
@@ -61,9 +61,11 @@ final class StatusController: NSObject, NSPopoverDelegate {
 final class PopoverController: NSViewController {
     private let model: TimerModel
     private let root = PopoverView()
-    var onSizeChange: ((NSSize) -> Void)?
 
-    var preferredSize: NSSize { root.preferredSize }
+    var preferredSize: NSSize {
+        loadViewIfNeeded()
+        return root.preferredSize
+    }
 
     init(model: TimerModel) {
         self.model = model
@@ -77,12 +79,10 @@ final class PopoverController: NSViewController {
 
     override func loadView() {
         root.model = model
-        root.onSizeChange = { [weak self] size in
-            self?.onSizeChange?(size)
-        }
-        root.frame = NSRect(origin: .zero, size: NSSize(width: 360, height: 280))
         view = root
         root.buildIfNeeded()
+        root.frame = NSRect(origin: .zero, size: root.preferredSize)
+        preferredContentSize = root.preferredSize
     }
 
     func reload() {
@@ -93,13 +93,12 @@ final class PopoverController: NSViewController {
 @MainActor
 final class PopoverView: NSView {
     weak var model: TimerModel?
-    var onSizeChange: ((NSSize) -> Void)?
 
     private let phaseLabel = NSTextField(labelWithString: "时行")
     private let timeLabel = NSTextField(labelWithString: "25:00")
     private let guaNameLabel = NSTextField(labelWithString: "乾　第一卦")
     private let judgmentLabel = NSTextField(wrappingLabelWithString: "元亨利贞。")
-    private let hintLabel = NSTextField(labelWithString: "现在休息")
+    private let linesLabel = NSTextField(wrappingLabelWithString: "初九　潜龙勿用。")
     private let progress = YaoProgress()
     private let pauseButton = NSButton(title: "且止", target: nil, action: nil)
     private let actionButton = NSButton(title: "入止", target: nil, action: nil)
@@ -110,17 +109,17 @@ final class PopoverView: NSView {
     private let overlayBox = NSButton(checkboxWithTitle: "止时遮住屏幕", target: nil, action: nil)
     private let soundBox = NSButton(checkboxWithTitle: "钟声", target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: "开机即行", target: nil, action: nil)
-    private var settingsStack: NSStackView?
-    private var prefsButton: NSButton?
-    private var rootStack: NSStackView?
-    private var prefsExpanded = false
     private var didBuild = false
 
-    var preferredSize: NSSize {
-        layoutSubtreeIfNeeded()
-        let height = (rootStack?.fittingSize.height ?? 248) + 36
-        return NSSize(width: 360, height: max(260, height))
-    }
+    static let panelSize = NSSize(width: 400, height: 548)
+    private static let horizontalInset: CGFloat = 20
+    private static let guaWidth: CGFloat = 88
+    private static let guaHeight: CGFloat = 114
+    private static let guaGap: CGFloat = 14
+    private static let innerWidth: CGFloat = panelSize.width - horizontalInset * 2
+    private static let judgmentWidth: CGFloat = innerWidth - guaWidth - guaGap
+
+    var preferredSize: NSSize { Self.panelSize }
 
     override var isFlipped: Bool { true }
 
@@ -130,23 +129,18 @@ final class PopoverView: NSView {
         wantsLayer = true
         layer?.backgroundColor = Theme.paper.cgColor
 
-        phaseLabel.font = Theme.kaiti(size: 16)
+        phaseLabel.font = Theme.kaiti(size: 17)
         phaseLabel.textColor = Theme.cinnabar
-        timeLabel.font = Theme.songti(size: 22, weight: .light)
+        timeLabel.font = Theme.songti(size: 24, weight: .light)
         timeLabel.textColor = Theme.ink
         timeLabel.alignment = .right
-        guaNameLabel.font = Theme.kaiti(size: 18)
+        guaNameLabel.font = Theme.kaiti(size: 20)
         guaNameLabel.textColor = Theme.ink
         guaNameLabel.alignment = .left
-        judgmentLabel.font = Theme.kaiti(size: 13)
-        judgmentLabel.textColor = Theme.muted
-        judgmentLabel.alignment = .left
-        judgmentLabel.maximumNumberOfLines = 5
-        judgmentLabel.lineBreakMode = .byTruncatingTail
-        judgmentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        hintLabel.font = Theme.kaiti(size: 11)
-        hintLabel.textColor = Theme.muted
-        hintLabel.alignment = .right
+        guaNameLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        configureWrapping(judgmentLabel, size: 16, color: Theme.muted, width: Self.judgmentWidth)
+        configureWrapping(linesLabel, size: 15, color: Theme.ink, width: Self.innerWidth)
 
         styleFillButton(pauseButton, prominent: false)
         styleFillButton(actionButton, prominent: true)
@@ -175,7 +169,7 @@ final class PopoverView: NSView {
         restValue.textColor = Theme.mineral
 
         for box in [overlayBox, soundBox, loginBox] {
-            box.font = Theme.kaiti(size: 14)
+            box.font = Theme.kaiti(size: 13)
             box.target = self
         }
         overlayBox.action = #selector(toggleOverlay)
@@ -195,60 +189,82 @@ final class PopoverView: NSView {
 
         let guaRow = NSStackView(views: [progress, textColumn])
         guaRow.orientation = .horizontal
-        guaRow.alignment = .centerY
-        guaRow.spacing = 16
+        guaRow.alignment = .top
+        guaRow.spacing = Self.guaGap
         guaRow.distribution = .fill
         progress.translatesAutoresizingMaskIntoConstraints = false
-        progress.widthAnchor.constraint(equalToConstant: 84).isActive = true
-        progress.heightAnchor.constraint(equalToConstant: 108).isActive = true
+        progress.widthAnchor.constraint(equalToConstant: Self.guaWidth).isActive = true
+        progress.heightAnchor.constraint(equalToConstant: Self.guaHeight).isActive = true
+        progress.setContentHuggingPriority(.required, for: .vertical)
+        progress.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        let linesScroll = NSScrollView()
+        linesScroll.drawsBackground = false
+        linesScroll.hasVerticalScroller = true
+        linesScroll.autohidesScrollers = true
+        linesScroll.borderType = .noBorder
+        linesScroll.scrollerStyle = .overlay
+        linesScroll.documentView = linesLabel
+        linesScroll.translatesAutoresizingMaskIntoConstraints = false
+        linesLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let controls = NSStackView(views: [pauseButton, actionButton])
         controls.orientation = .horizontal
         controls.distribution = .fillEqually
         controls.spacing = 8
-        pauseButton.heightAnchor.constraint(equalToConstant: 32).isActive = true
-        actionButton.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        pauseButton.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        actionButton.heightAnchor.constraint(equalToConstant: 34).isActive = true
 
         let workRow = labeledRow("行", value: workValue, stepper: workStepper)
         let restRow = labeledRow("止", value: restValue, stepper: restStepper)
-        let settings = NSStackView(views: [workRow, restRow, overlayBox, soundBox, loginBox])
+        let checks = NSStackView(views: [overlayBox, soundBox, loginBox])
+        checks.orientation = .vertical
+        checks.alignment = .leading
+        checks.spacing = 4
+        let settings = NSStackView(views: [workRow, restRow, checks])
         settings.orientation = .vertical
         settings.alignment = .leading
-        settings.spacing = 10
-        settings.isHidden = true
-        settingsStack = settings
+        settings.spacing = 6
 
-        let prefs = linkButton("偏好", #selector(togglePrefs))
-        prefsButton = prefs
         let restart = linkButton("重起", #selector(restartCycle))
         let quit = linkButton("退出", #selector(quitApp))
-        let footer = NSStackView(views: [prefs, restart, NSView(), quit])
+        let footer = NSStackView(views: [restart, NSView(), quit])
         footer.orientation = .horizontal
         footer.alignment = .centerY
         footer.spacing = 12
 
-        let root = NSStackView(views: [topRow, guaRow, hairline(), controls, hintLabel, settings, footer])
+        let root = NSStackView(views: [
+            topRow, guaRow, hairline(), linesScroll, hairline(), controls, settings, footer
+        ])
         root.orientation = .vertical
         root.alignment = .leading
-        root.spacing = 12
+        root.spacing = 10
         root.translatesAutoresizingMaskIntoConstraints = false
         addSubview(root)
-        rootStack = root
 
         NSLayoutConstraint.activate([
-            root.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            root.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            root.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            root.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.horizontalInset),
+            root.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.horizontalInset),
+            root.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            root.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
             topRow.widthAnchor.constraint(equalTo: root.widthAnchor),
             guaRow.widthAnchor.constraint(equalTo: root.widthAnchor),
+            linesScroll.widthAnchor.constraint(equalTo: root.widthAnchor),
+            linesScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 148),
             controls.widthAnchor.constraint(equalTo: root.widthAnchor),
-            hintLabel.widthAnchor.constraint(equalTo: root.widthAnchor),
             settings.widthAnchor.constraint(equalTo: root.widthAnchor),
             footer.widthAnchor.constraint(equalTo: root.widthAnchor),
             workRow.widthAnchor.constraint(equalTo: settings.widthAnchor),
             restRow.widthAnchor.constraint(equalTo: settings.widthAnchor),
-            textColumn.widthAnchor.constraint(greaterThanOrEqualToConstant: 200)
+            checks.widthAnchor.constraint(equalTo: settings.widthAnchor),
+            linesLabel.leadingAnchor.constraint(equalTo: linesScroll.contentView.leadingAnchor),
+            linesLabel.trailingAnchor.constraint(equalTo: linesScroll.contentView.trailingAnchor),
+            linesLabel.topAnchor.constraint(equalTo: linesScroll.contentView.topAnchor),
+            linesLabel.widthAnchor.constraint(equalTo: linesScroll.contentView.widthAnchor)
         ])
+
+        linesScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+        linesScroll.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
         refresh()
     }
@@ -259,13 +275,16 @@ final class PopoverView: NSView {
         timeLabel.stringValue = model.format(model.remaining)
         guaNameLabel.stringValue = model.currentHexagram.heading
         judgmentLabel.stringValue = model.currentHexagram.judgment
-        let textWidth = max(180, bounds.width - 56 - 84)
-        judgmentLabel.preferredMaxLayoutWidth = textWidth
+        linesLabel.stringValue = model.currentHexagram.yaoPassage
+        judgmentLabel.preferredMaxLayoutWidth = Self.judgmentWidth
+        linesLabel.preferredMaxLayoutWidth = Self.innerWidth
+        linesLabel.invalidateIntrinsicContentSize()
+        let lineHeight = max(linesLabel.intrinsicContentSize.height, 1)
+        linesLabel.frame = NSRect(x: 0, y: 0, width: Self.innerWidth, height: lineHeight)
         progress.progress = 1
         progress.yaos = model.currentHexagram.yaos
         pauseButton.title = model.isPaused ? "再行" : "且止"
         actionButton.title = model.phase == .rest ? "仍行" : "入止"
-        hintLabel.stringValue = model.phase == .rest ? "跳过这次" : "现在休息"
         styleFillButton(pauseButton, prominent: false)
         styleFillButton(actionButton, prominent: true)
         workStepper.integerValue = model.workMinutes
@@ -275,13 +294,18 @@ final class PopoverView: NSView {
         overlayBox.state = model.overlayEnabled ? .on : .off
         soundBox.state = model.soundEnabled ? .on : .off
         loginBox.state = model.launchAtLogin ? .on : .off
-        prefsButton?.attributedTitle = NSAttributedString(
-            string: prefsExpanded ? "收起" : "偏好",
-            attributes: [
-                .foregroundColor: Theme.muted,
-                .font: Theme.kaiti(size: 13)
-            ]
-        )
+    }
+
+    private func configureWrapping(_ label: NSTextField, size: CGFloat, color: NSColor, width: CGFloat) {
+        label.font = Theme.kaiti(size: size)
+        label.textColor = color
+        label.alignment = .left
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byCharWrapping
+        label.usesSingleLineMode = false
+        label.preferredMaxLayoutWidth = width
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.required, for: .vertical)
     }
 
     private func styleFillButton(_ button: NSButton, prominent: Bool) {
@@ -290,14 +314,14 @@ final class PopoverView: NSView {
         button.wantsLayer = true
         button.layer?.cornerRadius = 0
         button.layer?.backgroundColor = (prominent ? Theme.cinnabar : Theme.chip).cgColor
-        button.font = Theme.kaiti(size: 15)
+        button.font = Theme.kaiti(size: 16)
         button.contentTintColor = prominent ? Theme.silk : Theme.ink
         let color = prominent ? Theme.silk : Theme.ink
         button.attributedTitle = NSAttributedString(
             string: button.title,
             attributes: [
                 .foregroundColor: color,
-                .font: Theme.kaiti(size: 15)
+                .font: Theme.kaiti(size: 16)
             ]
         )
     }
@@ -347,14 +371,6 @@ final class PopoverView: NSView {
             model.restNow()
         }
     }
-    @objc private func togglePrefs() {
-        prefsExpanded.toggle()
-        settingsStack?.isHidden = !prefsExpanded
-        needsLayout = true
-        layoutSubtreeIfNeeded()
-        onSizeChange?(preferredSize)
-        refresh()
-    }
     @objc private func workChanged() {
         model?.workMinutes = workStepper.integerValue
         model?.applyDurations()
@@ -385,6 +401,7 @@ final class YaoProgress: NSView {
     }
 
     override var isFlipped: Bool { true }
+    override var intrinsicContentSize: NSSize { NSSize(width: 88, height: 114) }
 
     override func draw(_ dirtyRect: NSRect) {
         YaoPainter.draw(

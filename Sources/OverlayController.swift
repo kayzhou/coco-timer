@@ -6,7 +6,9 @@ final class OverlayController {
 
     private var windows: [NSWindow] = []
     private var canvases: [RestCanvas] = []
-    private var eventMonitor: Any?
+    private var localMonitor: Any?
+    private var globalMonitor: Any?
+    private var screenObserver: NSObjectProtocol?
     private weak var model: TimerModel?
     private var savedPresentation: NSApplication.PresentationOptions = []
 
@@ -44,9 +46,13 @@ final class OverlayController {
             panel.alphaValue = 0
 
             let canvas = RestCanvas(frame: NSRect(origin: .zero, size: frame.size))
+            canvas.autoresizingMask = [.width, .height]
             canvas.isPrimary = isPrimary
             canvas.remainingText = model.format(model.remaining)
             canvas.hexagram = model.currentHexagram
+            canvas.onDefer = { [weak model] in
+                model?.deferRest()
+            }
             canvas.onSkip = { [weak model] in
                 model?.skipRest()
             }
@@ -63,7 +69,7 @@ final class OverlayController {
             }
         }
 
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
                 Task { @MainActor in
                     OverlayController.shared.model?.skipRest()
@@ -72,14 +78,41 @@ final class OverlayController {
             }
             return event
         }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                Task { @MainActor in
+                    OverlayController.shared.model?.skipRest()
+                }
+            }
+        }
+
+        if screenObserver == nil {
+            screenObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.relayoutIfNeeded()
+                }
+            }
+        }
 
         refresh()
     }
 
     func hide(animated: Bool = true) {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-            self.eventMonitor = nil
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+        if let globalMonitor {
+            NSEvent.removeMonitor(globalMonitor)
+            self.globalMonitor = nil
+        }
+        if let screenObserver {
+            NotificationCenter.default.removeObserver(screenObserver)
+            self.screenObserver = nil
         }
         NSApp.presentationOptions = savedPresentation
 
@@ -113,87 +146,88 @@ final class OverlayController {
     func refresh() {
         guard let model else { return }
         let text = model.format(model.remaining)
+        let gua = model.currentHexagram
         for canvas in canvases {
             canvas.remainingText = text
-            canvas.hexagram = model.currentHexagram
+            canvas.hexagram = gua
         }
+    }
+
+    private func relayoutIfNeeded() {
+        guard isVisible, let model, model.phase == .rest, model.overlayEnabled else { return }
+        show(model: model)
     }
 }
 
 final class RestCanvas: NSView {
     var remainingText = "1:00" {
-        didSet { needsDisplay = true }
+        didSet {
+            guard remainingText != oldValue else { return }
+            needsDisplay = true
+        }
     }
     var hexagram: IChingHexagram = HexagramCatalog.all[0] {
-        didSet { needsDisplay = true }
+        didSet {
+            guard hexagram != oldValue else { return }
+            needsDisplay = true
+        }
     }
     var isPrimary = false
+    var onDefer: (() -> Void)?
     var onSkip: (() -> Void)?
 
-    private var pulseTimer: Timer?
+    private var deferButton: NSButton?
     private var skipButton: NSButton?
-    private var skipHint: NSTextField?
-    private var skipY: CGFloat = 0
+    private var controlsY: CGFloat = 0
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil {
-            pulseTimer?.invalidate()
-            pulseTimer = nil
-            return
-        }
+        guard window != nil, isPrimary, deferButton == nil else { return }
         wantsLayer = true
-        pulseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.needsDisplay = true
-            }
-        }
-        if let pulseTimer {
-            RunLoop.main.add(pulseTimer, forMode: .common)
-        }
-        if isPrimary, skipButton == nil {
-            let button = NSButton(title: "仍行", target: self, action: #selector(skip))
-            button.bezelStyle = .inline
-            button.isBordered = false
-            button.attributedTitle = NSAttributedString(
-                string: "仍行",
-                attributes: [
-                    .font: Theme.kaiti(size: 22),
-                    .foregroundColor: Theme.silk
-                ]
-            )
-            addSubview(button)
-            skipButton = button
 
-            let hint = NSTextField(labelWithString: "跳过这次")
-            hint.font = Theme.kaiti(size: 13)
-            hint.textColor = Theme.haze
-            hint.alignment = .center
-            hint.isBezeled = false
-            hint.drawsBackground = false
-            addSubview(hint)
-            skipHint = hint
-        }
+        let deferBtn = NSButton(title: "再坐五分", target: self, action: #selector(deferRest))
+        deferBtn.bezelStyle = .inline
+        deferBtn.isBordered = false
+        deferBtn.attributedTitle = NSAttributedString(
+            string: "再坐五分",
+            attributes: [
+                .font: Theme.kaiti(size: 22),
+                .foregroundColor: Theme.silk.withAlphaComponent(0.72)
+            ]
+        )
+        addSubview(deferBtn)
+        deferButton = deferBtn
+
+        let skip = NSButton(title: "仍行", target: self, action: #selector(skip))
+        skip.bezelStyle = .inline
+        skip.isBordered = false
+        skip.attributedTitle = NSAttributedString(
+            string: "仍行",
+            attributes: [
+                .font: Theme.kaiti(size: 13),
+                .foregroundColor: Theme.haze.withAlphaComponent(0.55)
+            ]
+        )
+        addSubview(skip)
+        skipButton = skip
     }
 
     override func layout() {
         super.layout()
-        positionSkipControls()
+        positionControls()
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let gradient = NSGradient(starting: Theme.xuan, ending: Theme.xuanDeep)
         gradient?.draw(in: bounds, angle: 270)
 
-        let t = Date().timeIntervalSinceReferenceDate
-        let pulse = (sin(t * .pi / 2.6) + 1) / 2
-        let silk = Theme.silk.withAlphaComponent(0.78 + 0.18 * pulse)
+        let silk = Theme.silk.withAlphaComponent(0.88)
 
         guard isPrimary else {
-            let guaWidth = min(bounds.width, bounds.height) * 0.18
+            let guaWidth = min(bounds.width, bounds.height) * 0.14
             let guaRect = NSRect(
                 x: bounds.midX - guaWidth / 2,
                 y: bounds.midY - guaWidth * 0.54,
@@ -210,73 +244,95 @@ final class RestCanvas: NSView {
             return
         }
 
-        let guaW: CGFloat = 168
-        let guaH: CGFloat = 186
-        let gap: CGFloat = 40
-        let textW: CGFloat = min(420, max(240, bounds.width * 0.38))
-        let blockW = guaW + gap + textW
+        let noteW: CGFloat = min(520, bounds.width * 0.56)
+        let guaW: CGFloat = 72
+        let guaH: CGFloat = 80
+        let gap: CGFloat = 18
+        let textW = noteW - guaW - gap
+        let noteX = (bounds.width - noteW) / 2
+        let noteTop = bounds.height * 0.09
 
         let nameAttrs: [NSAttributedString.Key: Any] = [
-            .font: Theme.kaiti(size: 28),
-            .foregroundColor: Theme.cinnabar.withAlphaComponent(0.92)
+            .font: Theme.kaiti(size: 20),
+            .foregroundColor: Theme.cinnabar.withAlphaComponent(0.7)
         ]
         let name = NSAttributedString(string: hexagram.heading, attributes: nameAttrs)
         let nameSize = name.boundingRect(
-            with: NSSize(width: textW, height: 40),
+            with: NSSize(width: textW, height: 32),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
 
         let judgmentStyle = NSMutableParagraphStyle()
         judgmentStyle.alignment = .left
-        judgmentStyle.lineSpacing = 6
+        judgmentStyle.lineSpacing = 4
+        judgmentStyle.lineBreakMode = .byCharWrapping
         let judgmentAttrs: [NSAttributedString.Key: Any] = [
-            .font: Theme.kaiti(size: 17),
-            .foregroundColor: Theme.haze,
+            .font: Theme.kaiti(size: 16),
+            .foregroundColor: Theme.haze.withAlphaComponent(0.86),
             .paragraphStyle: judgmentStyle
         ]
         let judgment = NSAttributedString(string: hexagram.judgment, attributes: judgmentAttrs)
         let judgmentSize = judgment.boundingRect(
-            with: NSSize(width: textW, height: 220),
+            with: NSSize(width: textW, height: 96),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
 
-        let textH = ceil(nameSize.height) + 12 + ceil(judgmentSize.height)
-        let rowH = max(guaH, textH)
-        let promptH: CGFloat = 40
-        let timeH: CGFloat = 52
-        let skipBlock: CGFloat = 72
-        let blockH = rowH + 20 + promptH + 16 + timeH + skipBlock
-        let originX = (bounds.width - blockW) / 2
-        let originY = (bounds.height - blockH) / 2
+        let linesStyle = NSMutableParagraphStyle()
+        linesStyle.alignment = .left
+        linesStyle.lineSpacing = 5
+        linesStyle.lineBreakMode = .byCharWrapping
+        let linesAttrs: [NSAttributedString.Key: Any] = [
+            .font: Theme.kaiti(size: 15),
+            .foregroundColor: Theme.silk.withAlphaComponent(0.58),
+            .paragraphStyle: linesStyle
+        ]
+        let lines = NSAttributedString(string: hexagram.yaoPassage, attributes: linesAttrs)
+        let linesMaxH = min(160, bounds.height * 0.22)
+        let linesSize = lines.boundingRect(
+            with: NSSize(width: noteW, height: linesMaxH),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
 
-        let guaRect = NSRect(x: originX, y: originY + (rowH - guaH) / 2, width: guaW, height: guaH)
+        let textH = ceil(nameSize.height) + 6 + ceil(judgmentSize.height)
+        let rowH = max(guaH, textH)
+        let guaRect = NSRect(x: noteX, y: noteTop + (rowH - guaH) / 2, width: guaW, height: guaH)
         YaoPainter.draw(
             in: guaRect,
             yaos: hexagram.yaos,
             progress: 1,
-            yang: silk,
-            dim: Theme.silk.withAlphaComponent(0.28)
+            yang: Theme.silk.withAlphaComponent(0.55),
+            dim: Theme.silk.withAlphaComponent(0.18)
         )
 
-        let textX = originX + guaW + gap
-        let textY = originY + (rowH - textH) / 2
+        let textX = noteX + guaW + gap
+        let textY = noteTop + (rowH - textH) / 2
         name.draw(in: NSRect(x: textX, y: textY, width: textW, height: ceil(nameSize.height)))
         judgment.draw(
             in: NSRect(
                 x: textX,
-                y: textY + ceil(nameSize.height) + 12,
+                y: textY + ceil(nameSize.height) + 6,
                 width: textW,
                 height: ceil(judgmentSize.height)
+            )
+        )
+        lines.draw(
+            in: NSRect(
+                x: noteX,
+                y: noteTop + rowH + 14,
+                width: noteW,
+                height: min(linesMaxH, ceil(linesSize.height))
             )
         )
 
         let promptStyle = NSMutableParagraphStyle()
         promptStyle.alignment = .center
-        let promptY = originY + rowH + 20
+        let promptH: CGFloat = 56
+        let timeH: CGFloat = 58
+        let promptY = bounds.height * 0.52
         (Theme.standPrompt as NSString).draw(
-            in: NSRect(x: 0, y: promptY, width: bounds.width, height: promptH),
+            in: NSRect(x: 24, y: promptY, width: bounds.width - 48, height: promptH),
             withAttributes: [
-                .font: Theme.kaiti(size: 24),
+                .font: Theme.kaiti(size: 40),
                 .foregroundColor: Theme.silk,
                 .paragraphStyle: promptStyle
             ]
@@ -286,32 +342,34 @@ final class RestCanvas: NSView {
         let timeStyle = NSMutableParagraphStyle()
         timeStyle.alignment = .center
         time.draw(
-            in: NSRect(x: 0, y: promptY + promptH + 16, width: bounds.width, height: timeH),
+            in: NSRect(x: 0, y: promptY + promptH + 8, width: bounds.width, height: timeH),
             withAttributes: [
-                .font: Theme.songti(size: 36, weight: .light),
-                .foregroundColor: Theme.silk.withAlphaComponent(0.85),
+                .font: Theme.songti(size: 44, weight: .light),
+                .foregroundColor: Theme.silk.withAlphaComponent(0.82),
                 .paragraphStyle: timeStyle
             ]
         )
 
-        skipY = promptY + promptH + 16 + timeH + 18
-        positionSkipControls()
+        controlsY = bounds.height - 96
+        positionControls()
     }
 
-    private func positionSkipControls() {
-        guard let skipButton else { return }
+    private func positionControls() {
+        guard let deferButton, let skipButton else { return }
+        deferButton.sizeToFit()
         skipButton.sizeToFit()
+        deferButton.frame.origin = NSPoint(
+            x: (bounds.width - deferButton.bounds.width) / 2,
+            y: controlsY
+        )
         skipButton.frame.origin = NSPoint(
             x: (bounds.width - skipButton.bounds.width) / 2,
-            y: skipY
+            y: controlsY + deferButton.bounds.height + 6
         )
-        if let skipHint {
-            skipHint.sizeToFit()
-            skipHint.frame.origin = NSPoint(
-                x: (bounds.width - skipHint.bounds.width) / 2,
-                y: skipY + skipButton.bounds.height + 4
-            )
-        }
+    }
+
+    @objc private func deferRest() {
+        onDefer?()
     }
 
     @objc private func skip() {

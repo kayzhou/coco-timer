@@ -58,20 +58,15 @@ final class TimerModel {
     private var phaseBeforePause: TimerPhase = .work
     private var runningBeforeSleep = false
     private var didBootstrap = false
+    private var lastEmittedSecond = -1
+    private var lastHexagramNumber = -1
 
     var workDuration: TimeInterval { TimeInterval(workMinutes * 60) }
     var restDuration: TimeInterval { TimeInterval(restMinutes * 60) }
     var isPaused: Bool { phase == .paused }
 
     var statusBarText: String {
-        switch phase {
-        case .work:
-            return format(remaining)
-        case .rest:
-            return "止 \(format(remaining))"
-        case .paused:
-            return "静 \(format(remaining))"
-        }
+        format(remaining)
     }
 
     var currentHexagram: IChingHexagram {
@@ -92,7 +87,7 @@ final class TimerModel {
     var phaseHint: String {
         switch phase {
         case .work:
-            return "时行则行 · \(restMinutes) 分钟后入艮"
+            return "时行则行 · \(restMinutes) 分钟后入止"
         case .rest:
             return "坐不可久，起而步之。"
         case .paused:
@@ -188,6 +183,17 @@ final class TimerModel {
         startTicking()
     }
 
+    /// 取消这次休息，五分钟后再止。
+    func deferRest() {
+        OverlayController.shared.hide()
+        phase = .work
+        remaining = 5 * 60
+        endDate = Date().addingTimeInterval(remaining)
+        remainingWhenPaused = remaining
+        startTicking()
+        emit()
+    }
+
     func restartCycle() {
         enterWork(playSound: false, notify: false)
         startTicking()
@@ -196,17 +202,6 @@ final class TimerModel {
     func applyDurations() {
         workMinutes = Self.clamp(workMinutes, 5, 90)
         restMinutes = Self.clamp(restMinutes, 1, 15)
-        switch phase {
-        case .work:
-            remaining = workDuration
-            endDate = Date().addingTimeInterval(remaining)
-        case .rest:
-            remaining = restDuration
-            endDate = Date().addingTimeInterval(remaining)
-        case .paused:
-            remainingWhenPaused = min(remainingWhenPaused, workDuration)
-            remaining = remainingWhenPaused
-        }
         emit()
     }
 
@@ -232,7 +227,13 @@ final class TimerModel {
         remaining = max(0, endDate.timeIntervalSinceNow)
         if remaining <= 0.05 {
             completePhase()
-        } else {
+            return
+        }
+        let second = Int(remaining.rounded())
+        let gua = currentHexagram.number
+        if second != lastEmittedSecond || gua != lastHexagramNumber {
+            lastEmittedSecond = second
+            lastHexagramNumber = gua
             emit()
         }
     }
@@ -320,6 +321,8 @@ final class TimerModel {
     }
 
     private func emit() {
+        lastEmittedSecond = Int(remaining.rounded())
+        lastHexagramNumber = currentHexagram.number
         onChange?()
     }
 

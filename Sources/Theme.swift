@@ -50,19 +50,24 @@ enum Theme {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    static func statusIcon(yaos: [Bool]) -> NSImage {
-        let image = NSImage(size: NSSize(width: 14, height: 18), flipped: true) { rect in
-            YaoPainter.draw(
-                in: rect.insetBy(dx: 1, dy: 0.5),
-                yaos: yaos,
-                progress: 1,
-                yang: .black,
-                dim: .black
-            )
-            return true
+    static func statusBarTitle(phase: TimerPhase, time: String) -> NSAttributedString {
+        let mark: String
+        switch phase {
+        case .work:
+            mark = "行"
+        case .rest:
+            mark = "止"
+        case .paused:
+            mark = "静"
         }
-        image.isTemplate = true
-        return image
+        let text = NSMutableAttributedString()
+        text.append(NSAttributedString(string: mark, attributes: [
+            .font: kaiti(size: 12)
+        ]))
+        text.append(NSAttributedString(string: " \(time)", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        ]))
+        return text
     }
 }
 

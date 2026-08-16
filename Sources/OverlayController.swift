@@ -8,6 +8,7 @@ final class OverlayController {
     private var canvases: [RestCanvas] = []
     private var eventMonitor: Any?
     private weak var model: TimerModel?
+    private var savedPresentation: NSApplication.PresentationOptions = []
 
     var isVisible: Bool { !windows.isEmpty }
 
@@ -18,9 +19,12 @@ final class OverlayController {
         guard !screens.isEmpty else { return }
         let mainScreen = NSScreen.main ?? screens[0]
 
+        savedPresentation = NSApp.presentationOptions
+        NSApp.presentationOptions = [.hideMenuBar, .hideDock]
+
         for screen in screens {
             let isPrimary = screen == mainScreen
-            let frame = Self.frameLeavingMenuBar(on: screen)
+            let frame = screen.frame
             let panel = NSPanel(
                 contentRect: frame,
                 styleMask: [.borderless, .nonactivatingPanel],
@@ -28,7 +32,7 @@ final class OverlayController {
                 defer: false
             )
             panel.setFrame(frame, display: true)
-            panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) - 1)
+            panel.level = .screenSaver
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
             panel.isOpaque = false
             panel.backgroundColor = .clear
@@ -77,6 +81,7 @@ final class OverlayController {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
         }
+        NSApp.presentationOptions = savedPresentation
 
         let closing = windows
         windows = []
@@ -112,14 +117,6 @@ final class OverlayController {
             canvas.remainingText = text
             canvas.hexagram = model.currentHexagram
         }
-    }
-
-    private static func frameLeavingMenuBar(on screen: NSScreen) -> NSRect {
-        let full = screen.frame
-        let menuBarHeight = max(0, full.maxY - screen.visibleFrame.maxY)
-        var frame = full
-        frame.size.height -= menuBarHeight
-        return frame
     }
 }
 
@@ -245,9 +242,10 @@ final class RestCanvas: NSView {
 
         let textH = ceil(nameSize.height) + 12 + ceil(judgmentSize.height)
         let rowH = max(guaH, textH)
+        let promptH: CGFloat = 40
         let timeH: CGFloat = 52
         let skipBlock: CGFloat = 72
-        let blockH = rowH + 28 + timeH + skipBlock
+        let blockH = rowH + 20 + promptH + 16 + timeH + skipBlock
         let originX = (bounds.width - blockW) / 2
         let originY = (bounds.height - blockH) / 2
 
@@ -272,19 +270,31 @@ final class RestCanvas: NSView {
             )
         )
 
+        let promptStyle = NSMutableParagraphStyle()
+        promptStyle.alignment = .center
+        let promptY = originY + rowH + 20
+        (Theme.standPrompt as NSString).draw(
+            in: NSRect(x: 0, y: promptY, width: bounds.width, height: promptH),
+            withAttributes: [
+                .font: Theme.kaiti(size: 24),
+                .foregroundColor: Theme.silk,
+                .paragraphStyle: promptStyle
+            ]
+        )
+
         let time = remainingText as NSString
         let timeStyle = NSMutableParagraphStyle()
         timeStyle.alignment = .center
         time.draw(
-            in: NSRect(x: 0, y: originY + rowH + 24, width: bounds.width, height: timeH),
+            in: NSRect(x: 0, y: promptY + promptH + 16, width: bounds.width, height: timeH),
             withAttributes: [
                 .font: Theme.songti(size: 36, weight: .light),
-                .foregroundColor: Theme.silk,
+                .foregroundColor: Theme.silk.withAlphaComponent(0.85),
                 .paragraphStyle: timeStyle
             ]
         )
 
-        skipY = originY + rowH + 24 + timeH + 18
+        skipY = promptY + promptH + 16 + timeH + 18
         positionSkipControls()
     }
 

@@ -21,6 +21,9 @@ enum Theme {
     static let haze = NSColor(red: 0.640, green: 0.604, blue: 0.533, alpha: 1)
     static let skip = NSColor(red: 0.478, green: 0.447, blue: 0.408, alpha: 1)
 
+    /// 休息时的提醒，取古文口气
+    static let standPrompt = "坐不可久，起而步之。"
+
     static func kaiti(size: CGFloat) -> NSFont {
         NSFont(name: "Kaiti SC", size: size)
             ?? NSFont(name: "STKaiti", size: size)

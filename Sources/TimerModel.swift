@@ -94,7 +94,7 @@ final class TimerModel {
         case .work:
             return "时行则行 · \(restMinutes) 分钟后入艮"
         case .rest:
-            return "时止则止 · 仰观其远"
+            return "坐不可久，起而步之。"
         case .paused:
             return "止而未迁"
         }
@@ -276,8 +276,8 @@ final class TimerModel {
         }
         if notify {
             NotificationService.notify(
-                title: "艮 · 时止则止",
-                body: "离开屏幕 \(restMinutes) 分钟，看向远处。"
+                title: "时止则止",
+                body: Theme.standPrompt
             )
         }
         emit()

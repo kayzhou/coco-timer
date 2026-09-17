@@ -50,6 +50,7 @@ final class OverlayController {
             canvas.isPrimary = isPrimary
             canvas.remainingText = model.format(model.remaining)
             canvas.hexagram = model.currentHexagram
+            canvas.skipAllowed = model.canSkipRest
             canvas.onDefer = { [weak model] in
                 model?.deferRest()
             }
@@ -72,7 +73,9 @@ final class OverlayController {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
                 Task { @MainActor in
-                    OverlayController.shared.model?.skipRest()
+                    let model = OverlayController.shared.model
+                    guard model?.canSkipRest == true else { return }
+                    model?.skipRest()
                 }
                 return nil
             }
@@ -81,7 +84,9 @@ final class OverlayController {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
                 Task { @MainActor in
-                    OverlayController.shared.model?.skipRest()
+                    let model = OverlayController.shared.model
+                    guard model?.canSkipRest == true else { return }
+                    model?.skipRest()
                 }
             }
         }
@@ -147,9 +152,11 @@ final class OverlayController {
         guard let model else { return }
         let text = model.format(model.remaining)
         let gua = model.currentHexagram
+        let skipAllowed = model.canSkipRest
         for canvas in canvases {
             canvas.remainingText = text
             canvas.hexagram = gua
+            canvas.skipAllowed = skipAllowed
         }
     }
 
@@ -175,6 +182,12 @@ final class RestCanvas: NSView {
     var isPrimary = false
     var onDefer: (() -> Void)?
     var onSkip: (() -> Void)?
+    var skipAllowed = true {
+        didSet {
+            guard skipAllowed != oldValue else { return }
+            updateSkipAppearance()
+        }
+    }
 
     private var deferButton: NSButton?
     private var skipButton: NSButton?
@@ -213,6 +226,31 @@ final class RestCanvas: NSView {
         )
         addSubview(skip)
         skipButton = skip
+        updateSkipAppearance()
+    }
+
+    private func updateSkipAppearance() {
+        guard let skipButton else { return }
+        if skipAllowed {
+            skipButton.isEnabled = true
+            skipButton.attributedTitle = NSAttributedString(
+                string: "仍行",
+                attributes: [
+                    .font: Theme.kaiti(size: 13),
+                    .foregroundColor: Theme.haze.withAlphaComponent(0.55)
+                ]
+            )
+        } else {
+            skipButton.isEnabled = false
+            skipButton.attributedTitle = NSAttributedString(
+                string: Theme.skipBlockedControl,
+                attributes: [
+                    .font: Theme.kaiti(size: 13),
+                    .foregroundColor: Theme.haze.withAlphaComponent(0.32)
+                ]
+            )
+        }
+        needsLayout = true
     }
 
     override func layout() {
@@ -373,6 +411,7 @@ final class RestCanvas: NSView {
     }
 
     @objc private func skip() {
+        guard skipAllowed else { return }
         onSkip?()
     }
 }

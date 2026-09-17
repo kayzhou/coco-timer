@@ -284,9 +284,25 @@ final class PopoverView: NSView {
         progress.progress = 1
         progress.yaos = model.currentHexagram.yaos
         pauseButton.title = model.isPaused ? "再行" : "且止"
-        actionButton.title = model.phase == .rest ? "仍行" : "入止"
+        if model.phase == .rest {
+            actionButton.title = model.canSkipRest ? "仍行" : Theme.skipBlockedControl
+            actionButton.isEnabled = model.canSkipRest
+        } else {
+            actionButton.title = "入止"
+            actionButton.isEnabled = true
+        }
         styleFillButton(pauseButton, prominent: false)
         styleFillButton(actionButton, prominent: true)
+        if model.phase == .rest, !model.canSkipRest {
+            actionButton.layer?.backgroundColor = Theme.chip.cgColor
+            actionButton.attributedTitle = NSAttributedString(
+                string: Theme.skipBlockedControl,
+                attributes: [
+                    .foregroundColor: Theme.muted,
+                    .font: Theme.kaiti(size: 16)
+                ]
+            )
+        }
         workStepper.integerValue = model.workMinutes
         restStepper.integerValue = model.restMinutes
         workValue.stringValue = "\(model.workMinutes) 分钟"
@@ -366,6 +382,7 @@ final class PopoverView: NSView {
     @objc private func primaryAction() {
         guard let model else { return }
         if model.phase == .rest {
+            guard model.canSkipRest else { return }
             model.skipRest()
         } else {
             model.restNow()

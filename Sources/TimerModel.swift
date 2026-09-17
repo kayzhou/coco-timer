@@ -52,6 +52,11 @@ final class TimerModel {
 
     var onChange: (() -> Void)?
 
+    /// 连续跳过（仍行）次数；满 4 次后，下一次休息不可跳过。
+    private(set) var consecutiveSkipCount: Int
+    /// 当前这次休息是否禁止跳过（已消耗连续跳过额度）。
+    private(set) var isSkipBlocked = false
+
     private var endDate = Date()
     private var ticker: Timer?
     private var remainingWhenPaused: TimeInterval = 25 * 60
@@ -61,9 +66,14 @@ final class TimerModel {
     private var lastEmittedSecond = -1
     private var lastHexagramNumber = -1
 
+    private static let consecutiveSkipKey = "consecutiveSkipCount"
+    private static let skipBlockThreshold = 4
+
     var workDuration: TimeInterval { TimeInterval(workMinutes * 60) }
     var restDuration: TimeInterval { TimeInterval(restMinutes * 60) }
     var isPaused: Bool { phase == .paused }
+    /// 休息中且未被强制止息时，才可「仍行」。
+    var canSkipRest: Bool { !isSkipBlocked }
 
     var statusBarText: String {
         format(remaining)
@@ -89,7 +99,7 @@ final class TimerModel {
         case .work:
             return "时行则行 · \(restMinutes) 分钟后入止"
         case .rest:
-            return "坐不可久，起而步之。"
+            return isSkipBlocked ? Theme.skipBlockedHint : "坐不可久，起而步之。"
         case .paused:
             return "止而未迁"
         }
@@ -121,6 +131,8 @@ final class TimerModel {
         overlayEnabled = UserDefaults.standard.object(forKey: "overlayEnabled") as? Bool ?? true
         soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
         launchAtLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? false
+        let storedSkips = UserDefaults.standard.object(forKey: Self.consecutiveSkipKey) as? Int
+        consecutiveSkipCount = max(0, storedSkips ?? 0)
         remaining = TimeInterval(workMinutes * 60)
         remainingWhenPaused = remaining
     }
@@ -179,6 +191,9 @@ final class TimerModel {
     }
 
     func skipRest() {
+        guard canSkipRest else { return }
+        consecutiveSkipCount += 1
+        persistConsecutiveSkipCount()
         enterWork(playSound: true, notify: true)
         startTicking()
     }
@@ -242,6 +257,9 @@ final class TimerModel {
         if phase == .work {
             enterRest(playSound: true, notify: true)
         } else {
+            // 正常完成休息（含强制止息）后清零连续跳过，恢复可「仍行」。
+            resetConsecutiveSkips()
+            isSkipBlocked = false
             enterWork(playSound: true, notify: true)
         }
     }
@@ -265,6 +283,8 @@ final class TimerModel {
     }
 
     private func enterRest(playSound: Bool, notify: Bool) {
+        // 连续仍行满四次后，本次休息不可跳过；额度在休息正常结束时消耗清零。
+        isSkipBlocked = consecutiveSkipCount >= Self.skipBlockThreshold
         phase = .rest
         remaining = restDuration
         endDate = Date().addingTimeInterval(remaining)
@@ -278,10 +298,20 @@ final class TimerModel {
         if notify {
             NotificationService.notify(
                 title: "时止则止",
-                body: Theme.standPrompt
+                body: isSkipBlocked ? Theme.skipBlockedHint : Theme.standPrompt
             )
         }
         emit()
+    }
+
+    private func resetConsecutiveSkips() {
+        guard consecutiveSkipCount != 0 else { return }
+        consecutiveSkipCount = 0
+        persistConsecutiveSkipCount()
+    }
+
+    private func persistConsecutiveSkipCount() {
+        UserDefaults.standard.set(consecutiveSkipCount, forKey: Self.consecutiveSkipKey)
     }
 
     private func observeSleep() {

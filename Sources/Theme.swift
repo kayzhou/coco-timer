@@ -23,6 +23,9 @@ enum Theme {
 
     /// 休息时的提醒，取古文口气
     static let standPrompt = "坐不可久，起而步之。"
+    /// 连续四次仍行后，强制止息时的提示
+    static let skipBlockedHint = "连仍四次，此番须止。"
+    static let skipBlockedControl = "此番须止"
 
     static func kaiti(size: CGFloat) -> NSFont {
         NSFont(name: "Kaiti SC", size: size)

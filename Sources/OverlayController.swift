@@ -50,7 +50,9 @@ final class OverlayController {
             canvas.isPrimary = isPrimary
             canvas.remainingText = model.format(model.remaining)
             canvas.hexagram = model.currentHexagram
+            canvas.promptText = model.restPrompt
             canvas.skipAllowed = model.canSkipRest
+            canvas.deferAllowed = model.canDeferRest
             canvas.onDefer = { [weak model] in
                 model?.deferRest()
             }
@@ -70,12 +72,11 @@ final class OverlayController {
             }
         }
 
+        // Esc 在 MainActor 上同步处理，避免 Task 竞态导致相位守卫失效前重复计入跳过。
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
-                Task { @MainActor in
-                    let model = OverlayController.shared.model
-                    guard model?.canSkipRest == true else { return }
-                    model?.skipRest()
+                MainActor.assumeIsolated {
+                    OverlayController.shared.handleEscapeKey()
                 }
                 return nil
             }
@@ -83,11 +84,7 @@ final class OverlayController {
         }
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
-                Task { @MainActor in
-                    let model = OverlayController.shared.model
-                    guard model?.canSkipRest == true else { return }
-                    model?.skipRest()
-                }
+                OverlayController.handleEscapeKeyFromAnyThread()
             }
         }
 
@@ -97,7 +94,7 @@ final class OverlayController {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self?.relayoutIfNeeded()
                 }
             }
@@ -153,16 +150,45 @@ final class OverlayController {
         let text = model.format(model.remaining)
         let gua = model.currentHexagram
         let skipAllowed = model.canSkipRest
+        let deferAllowed = model.canDeferRest
+        let prompt = model.restPrompt
         for canvas in canvases {
             canvas.remainingText = text
             canvas.hexagram = gua
+            canvas.promptText = prompt
             canvas.skipAllowed = skipAllowed
+            canvas.deferAllowed = deferAllowed
         }
     }
 
-    private func relayoutIfNeeded() {
-        guard isVisible, let model, model.phase == .rest, model.overlayEnabled else { return }
+    func relayoutIfNeeded() {
+        guard isVisible, let model, model.phase == .rest, model.overlayEnabled else {
+            // 休息中应显示却因无屏/休眠错过时，尝试补上。
+            if let model, model.phase == .rest, model.overlayEnabled, !isVisible, !NSScreen.screens.isEmpty {
+                show(model: model)
+            }
+            return
+        }
         show(model: model)
+    }
+
+    private func handleEscapeKey() {
+        guard let model else { return }
+        guard model.canSkipRest else { return }
+        model.skipRest()
+    }
+
+    private nonisolated static func handleEscapeKeyFromAnyThread() {
+        let work = {
+            MainActor.assumeIsolated {
+                OverlayController.shared.handleEscapeKey()
+            }
+        }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.sync(execute: work)
+        }
     }
 }
 
@@ -179,6 +205,12 @@ final class RestCanvas: NSView {
             needsDisplay = true
         }
     }
+    var promptText = Theme.standPrompt {
+        didSet {
+            guard promptText != oldValue else { return }
+            needsDisplay = true
+        }
+    }
     var isPrimary = false
     var onDefer: (() -> Void)?
     var onSkip: (() -> Void)?
@@ -186,6 +218,12 @@ final class RestCanvas: NSView {
         didSet {
             guard skipAllowed != oldValue else { return }
             updateSkipAppearance()
+        }
+    }
+    var deferAllowed = true {
+        didSet {
+            guard deferAllowed != oldValue else { return }
+            updateDeferAppearance()
         }
     }
 
@@ -211,6 +249,8 @@ final class RestCanvas: NSView {
                 .foregroundColor: Theme.silk.withAlphaComponent(0.72)
             ]
         )
+        deferBtn.setAccessibilityLabel("再坐五分")
+        deferBtn.setAccessibilityHelp("推迟休息五分钟后再止")
         addSubview(deferBtn)
         deferButton = deferBtn
 
@@ -224,9 +264,12 @@ final class RestCanvas: NSView {
                 .foregroundColor: Theme.haze.withAlphaComponent(0.55)
             ]
         )
+        skip.setAccessibilityLabel("仍行")
+        skip.setAccessibilityHelp("跳过这次休息，亦可按 Esc")
         addSubview(skip)
         skipButton = skip
         updateSkipAppearance()
+        updateDeferAppearance()
     }
 
     private func updateSkipAppearance() {
@@ -240,6 +283,8 @@ final class RestCanvas: NSView {
                     .foregroundColor: Theme.haze.withAlphaComponent(0.55)
                 ]
             )
+            skipButton.setAccessibilityLabel("仍行")
+            skipButton.setAccessibilityHelp("跳过这次休息，亦可按 Esc")
         } else {
             skipButton.isEnabled = false
             skipButton.attributedTitle = NSAttributedString(
@@ -249,6 +294,34 @@ final class RestCanvas: NSView {
                     .foregroundColor: Theme.haze.withAlphaComponent(0.32)
                 ]
             )
+            skipButton.setAccessibilityLabel(Theme.skipBlockedControl)
+            skipButton.setAccessibilityHelp("连续跳过四次后须完成本次休息，Esc 亦不可跳过")
+        }
+        needsLayout = true
+    }
+
+    private func updateDeferAppearance() {
+        guard let deferButton else { return }
+        if deferAllowed {
+            deferButton.isEnabled = true
+            deferButton.attributedTitle = NSAttributedString(
+                string: "再坐五分",
+                attributes: [
+                    .font: Theme.kaiti(size: 22),
+                    .foregroundColor: Theme.silk.withAlphaComponent(0.72)
+                ]
+            )
+            deferButton.setAccessibilityHelp("推迟休息五分钟后再止")
+        } else {
+            deferButton.isEnabled = false
+            deferButton.attributedTitle = NSAttributedString(
+                string: "再坐五分",
+                attributes: [
+                    .font: Theme.kaiti(size: 22),
+                    .foregroundColor: Theme.haze.withAlphaComponent(0.28)
+                ]
+            )
+            deferButton.setAccessibilityHelp("强制止息中不可延期，须完成本次休息")
         }
         needsLayout = true
     }
@@ -367,7 +440,7 @@ final class RestCanvas: NSView {
         let promptH: CGFloat = 56
         let timeH: CGFloat = 58
         let promptY = bounds.height * 0.52
-        (Theme.standPrompt as NSString).draw(
+        (promptText as NSString).draw(
             in: NSRect(x: 24, y: promptY, width: bounds.width - 48, height: promptH),
             withAttributes: [
                 .font: Theme.kaiti(size: 40),
@@ -407,6 +480,7 @@ final class RestCanvas: NSView {
     }
 
     @objc private func deferRest() {
+        guard deferAllowed else { return }
         onDefer?()
     }
 

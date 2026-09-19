@@ -2,6 +2,9 @@ import AppKit
 import UserNotifications
 
 enum NotificationService {
+    private static let restIdentifier = "yixi.rest"
+    private static let workIdentifier = "yixi.work"
+
     static func request() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, error in
             if let error {
@@ -10,17 +13,35 @@ enum NotificationService {
         }
     }
 
-    static func notify(title: String, body: String) {
+    /// - Parameter soundEnabled: 与「钟声」偏好一致；关闭时不附带系统通知音。
+    static func notify(title: String, body: String, soundEnabled: Bool = true) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        content.sound = soundEnabled ? .default : nil
+
+        let identifier: String
+        if title.contains("时止") {
+            identifier = restIdentifier
+        } else if title.contains("时行") {
+            identifier = workIdentifier
+        } else {
+            identifier = "yixi.phase"
+        }
+
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
         let request = UNNotificationRequest(
-            identifier: "yixi.\(UUID().uuidString)",
+            identifier: identifier,
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request)
+        center.add(request) { error in
+            if let error {
+                NSLog("含章可贞：通知投递失败：\(error.localizedDescription)")
+            }
+        }
     }
 }
 

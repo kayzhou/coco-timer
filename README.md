@@ -17,11 +17,12 @@ macOS 菜单栏休息提醒。默认每工作 25 分钟，全屏停下 1 分钟�
 ## 做什么
 
 - 藏在菜单栏，不占 Dock
-- 卦象每分钟一变，可见卦名、卦序、卦辞
+- 卦象每分钟一变，可见卦名、卦序、卦辞；面板爻画反映当前相位剩余比例
 - 到点后遮住全部屏幕，提醒看向远处
 - 可暂停、立刻休息、跳过这次休息
-- 可改工作 / 休息时长
-- 可选提示音、开机即行
+- 连续「仍行」四次后，下一次休息强制完成（不可跳过 / 延期 / 暂停摘罩）
+- 可改工作 / 休息时长（改动会立刻重绑当前相位的倒计时）
+- 可选提示音（含系统通知音）、开机即行
 - Mac 睡眠时会暂停计时，醒来再续
 
 系统通知文案：
@@ -63,16 +64,18 @@ make run
 
 | 按钮 | 含义 |
 | --- | --- |
-| 且止 / 再行 | 暂停或继续 |
-| 入艮 | 现在就休息 |
-| 仍行 | 跳过这次休息 |
+| 且止 / 再行 | 暂停或继续（强制止息时不可暂停） |
+| 入止 | 现在就休息 |
+| 仍行 | 跳过这次休息（连跳四次后变为「此番须止」） |
 | 行 / 止 | 工作和休息时长 |
 | 止时遮住屏幕 | 休息时是否全屏遮挡 |
-| 钟声 | 提示音 |
-| 开机即行 | 登录时自动启动 |
-| 重起 | 从一轮工作重新计时 |
+| 钟声 | 提示音与通知音 |
+| 开机即行 | 登录时自动启动（与系统 SMAppService 状态同步） |
+| 重起 | 从一轮工作重新计时（强制止息时不可用） |
 
-休息画面可用 `Esc` 或点「仍行」提前结束。第一次运行时，系统会询问通知权限。
+休息画面可用 `Esc` 或点「仍行」提前结束（强制止息时两者均不可用）。第一次运行时，系统会询问通知权限。
+
+连续跳过计数存在本机，重启应用后仍生效；只有正常走完一次休息才会清零。
 
 ## 从源码构建
 
@@ -81,23 +84,40 @@ make app      # 生成 dist/含章可贞.app
 make dmg      # 生成 dist/含章可贞-1.0.dmg
 make install  # 装到 /Applications
 make run      # 构建并打开
-make clean
+make clean    # 清理 .build / dist（保留 AppIcon.png）
+make icon     # 按坤卦重画图标
 ```
 
-`make icon` 会按坤卦重画应用图标。应用本身是 Swift 6 + AppKit，无第三方依赖。
+应用本身是 Swift 6 + AppKit，无第三方依赖。单元测试：
+
+```bash
+swift test --filter SkipPolicyTests
+```
 
 ```
 Sources/
   YixiApp.swift              入口
   TimerModel.swift           行止计时
+  SkipPolicy.swift           连续跳过 / 强制止息纯逻辑（Sources/YixiPolicy）
   StatusUI.swift             菜单栏与面板
   OverlayController.swift    休息时的全屏遮罩
   Theme.swift                爻画与颜色
   NotificationService.swift  通知与提示音
+  HexagramCatalog.swift      六十四卦数据
+Tests/YixiTests/             跳过策略单测
 Resources/Info.plist
 scripts/make_icon.swift      坤卦图标
+LICENSE                      MIT
 ```
+
+`YixiPolicy`（含 `SkipPolicy`）为独立 SPM 库目标，便于验证强制止息阈值。
+## 打包与签名
+
+- `make app` 使用 `codesign -s -` **ad-hoc 签名**，便于本机运行。
+- 发布用 DMG **未做 Developer ID 签名与公证**；他人下载时 Gatekeeper 会提示「无法验证开发者」，需在「隐私与安全性」中手动允许。
+- 正式分发需要 Apple Developer 账号、Developer ID Application 证书，以及 `notarytool` 公证——本仓库未配置相关凭证，故无法在 CI/本地自动完成公证。
+- 开机启动依赖 `SMAppService`，应用放在 `/Applications` 更稳妥；面板开关会与系统注册状态校准，注册失败会回滚勾选。
 
 ## 说明
 
-计时与偏好都存在本机 `UserDefaults`，不联网。全屏遮罩只盖在最上层，不会读取其他应用的内容。开机启动用系统的 `SMAppService`，应用需要在「应用程序」文件夹里才比较稳。
+计时与偏好都存在本机 `UserDefaults`，不联网。全屏遮罩只盖在最上层，不会读取其他应用的内容。许可协议为 MIT（见 `LICENSE`）。

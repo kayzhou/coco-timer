@@ -40,7 +40,7 @@ macOS 菜单栏休息提醒。默认每工作 25 分钟，全屏停下 1 分钟�
 
 ## 安装
 
-从 [Releases](https://github.com/kayzhou/coco-timer/releases) 下载 `含章可贞-1.0.dmg`，打开后把应用拖到 Applications。若系统提示无法验证开发者，到「隐私与安全性」里选择仍要打开。
+从 [Releases](https://github.com/kayzhou/coco-timer/releases) 下载 `HanzhangKezhen-1.0.dmg`（含章可贞 1.0），打开后把应用拖到 Applications。若系统提示无法验证开发者，到「隐私与安全性」里选择仍要打开。
 
 从源码安装：
 

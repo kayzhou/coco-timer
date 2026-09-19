@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0)"
+        required: true
+        default: "v1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build DMG & Publish Release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Package.swift needs Swift 6; macos-14 default Xcode is still 5.10
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build DMG
+        run: make dmg
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          VERSION="${TAG#v}"
+          DMG="dist/含章可贞-${VERSION}.dmg"
+          if [ ! -f "$DMG" ]; then
+            # Fallback: Makefile VERSION may not match tag; pick the built DMG
+            DMG="$(ls dist/*.dmg | head -1)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
+          ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: 含章可贞 ${{ steps.meta.outputs.version }}
+          draft: false
+          generate_release_notes: true
+          body: |
+            macOS 菜单栏休息提醒。默认每工作 25 分钟，全屏停下 1 分钟。
+
+            ## 安装
+
+            下载下方 `含章可贞-*.dmg`，打开后把应用拖到 Applications。
+
+            若系统提示无法验证开发者，到「隐私与安全性」里选择仍要打开。
+
+            > 本构建为 ad-hoc 签名（非 Developer ID / 未公证）。
+          files: ${{ steps.meta.outputs.dmg }}

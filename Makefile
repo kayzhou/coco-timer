@@ -57,4 +57,5 @@ run: app
 	open "$(APP_DIR)"
 
 clean:
-	rm -rf .build dist Resources/AppIcon.iconset Resources/AppIcon.png
+	rm -rf .build dist Resources/AppIcon.iconset
+	@echo "已清理构建产物（保留 Resources/AppIcon.png 与 AppIcon.icns）"

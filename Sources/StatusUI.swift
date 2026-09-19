@@ -109,6 +109,7 @@ final class PopoverView: NSView {
     private let overlayBox = NSButton(checkboxWithTitle: "止时遮住屏幕", target: nil, action: nil)
     private let soundBox = NSButton(checkboxWithTitle: "钟声", target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: "开机即行", target: nil, action: nil)
+    private let restartButton = NSButton(title: "重起", target: nil, action: nil)
     private var didBuild = false
 
     static let panelSize = NSSize(width: 400, height: 548)
@@ -226,7 +227,22 @@ final class PopoverView: NSView {
         settings.alignment = .leading
         settings.spacing = 6
 
-        let restart = linkButton("重起", #selector(restartCycle))
+        let restart = restartButton
+        restart.target = self
+        restart.action = #selector(restartCycle)
+        restart.bezelStyle = .inline
+        restart.isBordered = false
+        restart.font = Theme.kaiti(size: 13)
+        restart.contentTintColor = Theme.muted
+        restart.attributedTitle = NSAttributedString(
+            string: "重起",
+            attributes: [
+                .foregroundColor: Theme.muted,
+                .font: Theme.kaiti(size: 13)
+            ]
+        )
+        restart.setAccessibilityLabel("重起")
+        restart.setAccessibilityHelp("从一轮工作重新计时")
         let quit = linkButton("退出", #selector(quitApp))
         let footer = NSStackView(views: [restart, NSView(), quit])
         footer.orientation = .horizontal
@@ -281,12 +297,44 @@ final class PopoverView: NSView {
         linesLabel.invalidateIntrinsicContentSize()
         let lineHeight = max(linesLabel.intrinsicContentSize.height, 1)
         linesLabel.frame = NSRect(x: 0, y: 0, width: Self.innerWidth, height: lineHeight)
-        progress.progress = 1
+        progress.progress = model.progress
         progress.yaos = model.currentHexagram.yaos
         pauseButton.title = model.isPaused ? "再行" : "且止"
-        actionButton.title = model.phase == .rest ? "仍行" : "入止"
+        pauseButton.isEnabled = model.isPaused || model.canPause
+        if model.phase == .rest {
+            actionButton.title = model.canSkipRest ? "仍行" : Theme.skipBlockedControl
+            actionButton.isEnabled = model.canSkipRest
+        } else {
+            actionButton.title = "入止"
+            actionButton.isEnabled = true
+        }
         styleFillButton(pauseButton, prominent: false)
         styleFillButton(actionButton, prominent: true)
+        if model.isForcedRest {
+            pauseButton.layer?.backgroundColor = Theme.chip.cgColor
+            pauseButton.attributedTitle = NSAttributedString(
+                string: pauseButton.title,
+                attributes: [
+                    .foregroundColor: Theme.muted,
+                    .font: Theme.kaiti(size: 16)
+                ]
+            )
+            pauseButton.setAccessibilityHelp("强制止息中不可暂停，以免摘掉遮罩")
+            actionButton.layer?.backgroundColor = Theme.chip.cgColor
+            actionButton.attributedTitle = NSAttributedString(
+                string: Theme.skipBlockedControl,
+                attributes: [
+                    .foregroundColor: Theme.muted,
+                    .font: Theme.kaiti(size: 16)
+                ]
+            )
+            actionButton.setAccessibilityHelp("连续跳过四次后须完成本次休息")
+        } else {
+            pauseButton.setAccessibilityHelp(model.isPaused ? "继续计时" : "暂停计时")
+            actionButton.setAccessibilityHelp(
+                model.phase == .rest ? "跳过这次休息" : "立刻进入休息"
+            )
+        }
         workStepper.integerValue = model.workMinutes
         restStepper.integerValue = model.restMinutes
         workValue.stringValue = "\(model.workMinutes) 分钟"
@@ -294,6 +342,26 @@ final class PopoverView: NSView {
         overlayBox.state = model.overlayEnabled ? .on : .off
         soundBox.state = model.soundEnabled ? .on : .off
         loginBox.state = model.launchAtLogin ? .on : .off
+        restartButton.isEnabled = model.canRestartCycle
+        if model.canRestartCycle {
+            restartButton.attributedTitle = NSAttributedString(
+                string: "重起",
+                attributes: [
+                    .foregroundColor: Theme.muted,
+                    .font: Theme.kaiti(size: 13)
+                ]
+            )
+            restartButton.setAccessibilityHelp("从一轮工作重新计时")
+        } else {
+            restartButton.attributedTitle = NSAttributedString(
+                string: "重起",
+                attributes: [
+                    .foregroundColor: Theme.muted.withAlphaComponent(0.4),
+                    .font: Theme.kaiti(size: 13)
+                ]
+            )
+            restartButton.setAccessibilityHelp("强制止息中不可重起，须完成本次休息")
+        }
     }
 
     private func configureWrapping(_ label: NSTextField, size: CGFloat, color: NSColor, width: CGFloat) {
@@ -366,6 +434,7 @@ final class PopoverView: NSView {
     @objc private func primaryAction() {
         guard let model else { return }
         if model.phase == .rest {
+            guard model.canSkipRest else { return }
             model.skipRest()
         } else {
             model.restNow()
@@ -373,11 +442,11 @@ final class PopoverView: NSView {
     }
     @objc private func workChanged() {
         model?.workMinutes = workStepper.integerValue
-        model?.applyDurations()
+        model?.applyWorkDuration()
     }
     @objc private func restChanged() {
         model?.restMinutes = restStepper.integerValue
-        model?.applyDurations()
+        model?.applyRestDuration()
     }
     @objc private func toggleOverlay() {
         model?.overlayEnabled = overlayBox.state == .on
@@ -386,9 +455,14 @@ final class PopoverView: NSView {
         model?.soundEnabled = soundBox.state == .on
     }
     @objc private func toggleLogin() {
-        model?.launchAtLogin = loginBox.state == .on
+        model?.setLaunchAtLoginEnabled(loginBox.state == .on)
+        // 注册失败时回滚开关显示。
+        loginBox.state = (model?.launchAtLogin ?? false) ? .on : .off
     }
-    @objc private func restartCycle() { model?.restartCycle() }
+    @objc private func restartCycle() {
+        guard model?.canRestartCycle == true else { return }
+        model?.restartCycle()
+    }
     @objc private func quitApp() { NSApp.terminate(nil) }
 }
 

@@ -10,9 +10,20 @@ let package = Package(
         .executable(name: "Yixi", targets: ["Yixi"])
     ],
     targets: [
+        .target(
+            name: "YixiPolicy",
+            path: "Sources/YixiPolicy"
+        ),
         .executableTarget(
             name: "Yixi",
-            path: "Sources"
+            dependencies: ["YixiPolicy"],
+            path: "Sources",
+            exclude: ["YixiPolicy"]
+        ),
+        .testTarget(
+            name: "YixiTests",
+            dependencies: ["YixiPolicy"],
+            path: "Tests/YixiTests"
         )
     ]
 )

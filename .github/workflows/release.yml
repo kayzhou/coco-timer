@@ -41,11 +41,10 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           VERSION="${TAG#v}"
-          DMG="dist/含章可贞-${VERSION}.dmg"
-          if [ ! -f "$DMG" ]; then
-            # Fallback: Makefile VERSION may not match tag; pick the built DMG
-            DMG="$(ls dist/*.dmg | head -1)"
-          fi
+          # GitHub Release asset names cannot contain non-ASCII; ship a pinyin filename.
+          SRC="$(ls dist/*.dmg | head -1)"
+          DMG="dist/HanzhangKezhen-${VERSION}.dmg"
+          cp "$SRC" "$DMG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
@@ -63,9 +62,10 @@ jobs:
 
             ## 安装
 
-            下载下方 `含章可贞-*.dmg`，打开后把应用拖到 Applications。
+            下载下方 `HanzhangKezhen-*.dmg`（即「含章可贞」），打开后把应用拖到 Applications。
 
             若系统提示无法验证开发者，到「隐私与安全性」里选择仍要打开。
 
             > 本构建为 ad-hoc 签名（非 Developer ID / 未公证）。
+            > GitHub Release 资源名不支持中文，故使用拼音文件名。
           files: ${{ steps.meta.outputs.dmg }}

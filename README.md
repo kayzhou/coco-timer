@@ -121,3 +121,7 @@ LICENSE                      MIT
 ## 说明
 
 计时与偏好都存在本机 `UserDefaults`，不联网。全屏遮罩只盖在最上层，不会读取其他应用的内容。许可协议为 MIT（见 `LICENSE`）。
+
+## 词元写作台
+
+同一仓库的 `ciyuan/` 是本机中文 LaTeX 工作台。它和菜单栏休息提醒是两个应用。启动方式见 `ciyuan/README.md`。

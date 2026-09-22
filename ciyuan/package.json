@@ -1,0 +1,13 @@
+{
+  "name": "ciyuan-workbench",
+  "private": true,
+  "type": "module",
+  "description": "词元写作台：本机中文 LaTeX 工作台",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

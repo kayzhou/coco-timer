@@ -1,6 +1,7 @@
 .build/
 dist/
 .DS_Store
+ciyuan/data/
 *.xcodeproj
 .swiftpm/
 Resources/AppIcon.iconset/

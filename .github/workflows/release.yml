@@ -17,13 +17,13 @@ permissions:
 jobs:
   build-and-release:
     name: Build DMG & Publish Release
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
-      # Package.swift needs Swift 6; macos-14 default Xcode is still 5.10
+      # Package.swift needs Swift 6; runner default Xcode is still 5.10
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.2"

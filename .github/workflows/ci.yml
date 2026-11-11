@@ -9,10 +9,10 @@ on:
 jobs:
   build-test:
     name: Build & Test (macOS)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      # Package.swift 需要 Swift 6；macos-14 默认 Xcode 仍是 5.10
+      # Package.swift 需要 Swift 6；runner 默认 Xcode 仍是 5.10
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.2"

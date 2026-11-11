@@ -109,10 +109,13 @@ final class PopoverView: NSView {
     private let overlayBox = NSButton(checkboxWithTitle: "止时遮住屏幕", target: nil, action: nil)
     private let soundBox = NSButton(checkboxWithTitle: "钟声", target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: "开机即行", target: nil, action: nil)
+    private let skipHint = NSTextField(labelWithString: "")
+    private let themePicker = NSSegmentedControl(labels: ["影青 · 朱砂", "草木 · 自然绿"], trackingMode: .selectOne, target: nil, action: nil)
+    private let separators: [NSView] = [NSView(), NSView()]
     private let restartButton = NSButton(title: "重起", target: nil, action: nil)
     private var didBuild = false
 
-    static let panelSize = NSSize(width: 400, height: 548)
+    static let panelSize = NSSize(width: 400, height: 600)
     private static let horizontalInset: CGFloat = 20
     private static let guaWidth: CGFloat = 88
     private static let guaHeight: CGFloat = 114
@@ -132,7 +135,7 @@ final class PopoverView: NSView {
 
         phaseLabel.font = Theme.kaiti(size: 17)
         phaseLabel.textColor = Theme.cinnabar
-        timeLabel.font = Theme.songti(size: 24, weight: .light)
+        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 30, weight: .light)
         timeLabel.textColor = Theme.ink
         timeLabel.alignment = .right
         guaNameLabel.font = Theme.kaiti(size: 20)
@@ -145,6 +148,8 @@ final class PopoverView: NSView {
 
         styleFillButton(pauseButton, prominent: false)
         styleFillButton(actionButton, prominent: true)
+        pauseButton.toolTip = "暂停或继续计时"
+        actionButton.toolTip = "开始休息或跳过当前休息"
         pauseButton.target = self
         pauseButton.action = #selector(togglePause)
         actionButton.target = self
@@ -176,6 +181,18 @@ final class PopoverView: NSView {
         overlayBox.action = #selector(toggleOverlay)
         soundBox.action = #selector(toggleSound)
         loginBox.action = #selector(toggleLogin)
+
+        skipHint.font = NSFont.systemFont(ofSize: 12)
+        skipHint.textColor = Theme.muted
+        themePicker.target = self
+        themePicker.action = #selector(themeChanged)
+        themePicker.setAccessibilityLabel("选择配色主题")
+        themePicker.toolTip = "切换影青朱砂或草木自然绿"
+        for line in separators {
+            line.wantsLayer = true
+            line.translatesAutoresizingMaskIntoConstraints = false
+            line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        }
 
         let topRow = NSStackView(views: [phaseLabel, NSView(), timeLabel])
         topRow.orientation = .horizontal
@@ -250,7 +267,7 @@ final class PopoverView: NSView {
         footer.spacing = 12
 
         let root = NSStackView(views: [
-            topRow, guaRow, hairline(), linesScroll, hairline(), controls, settings, footer
+            topRow, controls, skipHint, guaRow, separators[0], linesScroll, separators[1], settings, themePicker, footer
         ])
         root.orientation = .vertical
         root.alignment = .leading
@@ -266,10 +283,13 @@ final class PopoverView: NSView {
             topRow.widthAnchor.constraint(equalTo: root.widthAnchor),
             guaRow.widthAnchor.constraint(equalTo: root.widthAnchor),
             linesScroll.widthAnchor.constraint(equalTo: root.widthAnchor),
-            linesScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 148),
+            linesScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 76),
             controls.widthAnchor.constraint(equalTo: root.widthAnchor),
             settings.widthAnchor.constraint(equalTo: root.widthAnchor),
             footer.widthAnchor.constraint(equalTo: root.widthAnchor),
+            themePicker.widthAnchor.constraint(equalTo: root.widthAnchor),
+            separators[0].widthAnchor.constraint(equalTo: root.widthAnchor),
+            separators[1].widthAnchor.constraint(equalTo: root.widthAnchor),
             workRow.widthAnchor.constraint(equalTo: settings.widthAnchor),
             restRow.widthAnchor.constraint(equalTo: settings.widthAnchor),
             checks.widthAnchor.constraint(equalTo: settings.widthAnchor),
@@ -287,6 +307,19 @@ final class PopoverView: NSView {
 
     func refresh() {
         guard let model, didBuild else { return }
+        layer?.backgroundColor = Theme.paper.cgColor
+        phaseLabel.textColor = Theme.cinnabar
+        timeLabel.textColor = Theme.ink
+        guaNameLabel.textColor = Theme.ink
+        judgmentLabel.textColor = Theme.muted
+        linesLabel.textColor = Theme.ink
+        workValue.textColor = Theme.mineral
+        restValue.textColor = Theme.mineral
+        skipHint.textColor = Theme.muted
+        for line in separators { line.layer?.backgroundColor = Theme.line.cgColor }
+        progress.needsDisplay = true
+        themePicker.selectedSegment = Theme.style == .classic ? 0 : 1
+        skipHint.stringValue = model.isForcedRest ? "已连续跳过四次，请完成本次休息" : (model.consecutiveSkipCount > 0 ? "连续跳过 \(model.consecutiveSkipCount) 次；满 4 次后需完成休息" : "行止有度 · 照顾自己")
         phaseLabel.stringValue = model.phaseTitle
         timeLabel.stringValue = model.format(model.remaining)
         guaNameLabel.stringValue = model.currentHexagram.heading
@@ -382,7 +415,7 @@ final class PopoverView: NSView {
         button.bezelStyle = .flexiblePush
         button.isBordered = false
         button.wantsLayer = true
-        button.layer?.cornerRadius = 0
+        button.layer?.cornerRadius = 6
         button.layer?.backgroundColor = (prominent ? Theme.cinnabar : Theme.chip).cgColor
         button.font = Theme.kaiti(size: 16)
         button.contentTintColor = prominent ? Theme.silk : Theme.ink
@@ -432,6 +465,11 @@ final class PopoverView: NSView {
         return line
     }
 
+    @objc private func themeChanged() {
+        Theme.style = themePicker.selectedSegment == 1 ? .green : .classic
+        refresh()
+        OverlayController.shared.refresh()
+    }
     @objc private func togglePause() { model?.togglePause() }
     @objc private func primaryAction() {
         guard let model else { return }

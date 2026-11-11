@@ -153,6 +153,7 @@ final class OverlayController {
         let deferAllowed = model.canDeferRest
         let prompt = model.restPrompt
         for canvas in canvases {
+            canvas.refreshTheme()
             canvas.remainingText = text
             canvas.hexagram = gua
             canvas.promptText = prompt
@@ -272,6 +273,12 @@ final class RestCanvas: NSView {
         updateDeferAppearance()
     }
 
+    func refreshTheme() {
+        updateSkipAppearance()
+        updateDeferAppearance()
+        needsDisplay = true
+    }
+
     private func updateSkipAppearance() {
         guard let skipButton else { return }
         if skipAllowed {
@@ -365,7 +372,7 @@ final class RestCanvas: NSView {
 
         let nameAttrs: [NSAttributedString.Key: Any] = [
             .font: Theme.kaiti(size: 20),
-            .foregroundColor: Theme.cinnabar.withAlphaComponent(0.7)
+            .foregroundColor: Theme.overlayAccent.withAlphaComponent(0.9)
         ]
         let name = NSAttributedString(string: hexagram.heading, attributes: nameAttrs)
         let nameSize = name.boundingRect(

@@ -1,25 +1,28 @@
 import AppKit
 
 enum Theme {
-    /// 影青：瓷色，不是宣纸暖白
-    static let paper = NSColor(red: 0.886, green: 0.902, blue: 0.863, alpha: 1)
-    /// 墨
-    static let ink = NSColor(red: 0.110, green: 0.094, blue: 0.078, alpha: 1)
-    /// 茶褐
-    static let muted = NSColor(red: 0.420, green: 0.369, blue: 0.306, alpha: 1)
-    /// 朱砂：阳、主按钮
-    static let cinnabar = NSColor(red: 0.604, green: 0.231, blue: 0.184, alpha: 1)
-    /// 石青：爻画
-    static let mineral = NSColor(red: 0.247, green: 0.361, blue: 0.333, alpha: 1)
-    static let line = NSColor(red: 0.773, green: 0.784, blue: 0.737, alpha: 1)
-    static let chip = NSColor(red: 0.827, green: 0.843, blue: 0.800, alpha: 1)
-    /// 玄：天
-    static let xuan = NSColor(red: 0.078, green: 0.067, blue: 0.055, alpha: 1)
-    static let xuanDeep = NSColor(red: 0.047, green: 0.039, blue: 0.031, alpha: 1)
-    /// 月白
-    static let silk = NSColor(red: 0.929, green: 0.910, blue: 0.863, alpha: 1)
-    static let haze = NSColor(red: 0.640, green: 0.604, blue: 0.533, alpha: 1)
-    static let skip = NSColor(red: 0.478, green: 0.447, blue: 0.408, alpha: 1)
+    enum Style: String, CaseIterable {
+        case classic, green
+    }
+
+    static var style: Style {
+        get { Style(rawValue: UserDefaults.standard.string(forKey: "visualTheme") ?? "") ?? .classic }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "visualTheme") }
+    }
+
+    private static var isGreen: Bool { style == .green }
+    static var paper: NSColor { isGreen ? NSColor(red: 0.91, green: 0.94, blue: 0.89, alpha: 1) : NSColor(red: 0.886, green: 0.902, blue: 0.863, alpha: 1) }
+    static var ink: NSColor { isGreen ? NSColor(red: 0.10, green: 0.19, blue: 0.14, alpha: 1) : NSColor(red: 0.110, green: 0.094, blue: 0.078, alpha: 1) }
+    static var muted: NSColor { isGreen ? NSColor(red: 0.28, green: 0.37, blue: 0.30, alpha: 1) : NSColor(red: 0.420, green: 0.369, blue: 0.306, alpha: 1) }
+    static var cinnabar: NSColor { isGreen ? NSColor(red: 0.20, green: 0.39, blue: 0.29, alpha: 1) : NSColor(red: 0.604, green: 0.231, blue: 0.184, alpha: 1) }
+    static var mineral: NSColor { isGreen ? NSColor(red: 0.22, green: 0.42, blue: 0.31, alpha: 1) : NSColor(red: 0.247, green: 0.361, blue: 0.333, alpha: 1) }
+    static var line: NSColor { isGreen ? NSColor(red: 0.72, green: 0.80, blue: 0.71, alpha: 1) : NSColor(red: 0.773, green: 0.784, blue: 0.737, alpha: 1) }
+    static var chip: NSColor { isGreen ? NSColor(red: 0.79, green: 0.86, blue: 0.78, alpha: 1) : NSColor(red: 0.827, green: 0.843, blue: 0.800, alpha: 1) }
+    static var xuan: NSColor { isGreen ? NSColor(red: 0.10, green: 0.21, blue: 0.15, alpha: 1) : NSColor(red: 0.078, green: 0.067, blue: 0.055, alpha: 1) }
+    static var xuanDeep: NSColor { isGreen ? NSColor(red: 0.04, green: 0.12, blue: 0.08, alpha: 1) : NSColor(red: 0.047, green: 0.039, blue: 0.031, alpha: 1) }
+    static var silk: NSColor { isGreen ? NSColor(red: 0.92, green: 0.95, blue: 0.88, alpha: 1) : NSColor(red: 0.929, green: 0.910, blue: 0.863, alpha: 1) }
+    static var haze: NSColor { isGreen ? NSColor(red: 0.72, green: 0.80, blue: 0.70, alpha: 1) : NSColor(red: 0.640, green: 0.604, blue: 0.533, alpha: 1) }
+    static var overlayAccent: NSColor { isGreen ? NSColor(red: 0.68, green: 0.82, blue: 0.65, alpha: 1) : cinnabar }
 
     /// 休息时的提醒，取古文口气
     static let standPrompt = "坐不可久，起而步之。"

@@ -8,12 +8,14 @@ DMG_ROOT := dist/dmgroot
 
 .PHONY: app icon install dmg run clean
 
-app: icon
+app:
 	swift build -c release --product $(BIN_NAME)
 	rm -rf $(APP_DIR)
 	mkdir -p $(CONTENTS)/MacOS $(CONTENTS)/Resources
 	cp .build/release/$(BIN_NAME) $(CONTENTS)/MacOS/$(BIN_NAME)
 	cp Resources/Info.plist $(CONTENTS)/Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(CONTENTS)/Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(CONTENTS)/Info.plist
 	cp Resources/AppIcon.icns $(CONTENTS)/Resources/AppIcon.icns
 	echo APPL???? > $(CONTENTS)/PkgInfo
 	codesign -s - --force --deep "$(APP_DIR)"

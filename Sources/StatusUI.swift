@@ -306,7 +306,7 @@ final class PopoverView: NSView {
             actionButton.isEnabled = model.canSkipRest
         } else {
             actionButton.title = "入止"
-            actionButton.isEnabled = true
+            actionButton.isEnabled = model.canStartRest
         }
         styleFillButton(pauseButton, prominent: false)
         styleFillButton(actionButton, prominent: true)
@@ -340,6 +340,8 @@ final class PopoverView: NSView {
         workValue.stringValue = "\(model.workMinutes) 分钟"
         restValue.stringValue = "\(model.restMinutes) 分钟"
         overlayBox.state = model.overlayEnabled ? .on : .off
+        overlayBox.isEnabled = !model.isForcedRest
+        overlayBox.setAccessibilityHelp(model.isForcedRest ? "强制止息期间不能更改遮罩设置" : "控制休息时是否遮住屏幕")
         soundBox.state = model.soundEnabled ? .on : .off
         loginBox.state = model.launchAtLogin ? .on : .off
         restartButton.isEnabled = model.canRestartCycle
@@ -449,7 +451,8 @@ final class PopoverView: NSView {
         model?.applyRestDuration()
     }
     @objc private func toggleOverlay() {
-        model?.overlayEnabled = overlayBox.state == .on
+        guard let model, !model.isForcedRest else { return }
+        model.overlayEnabled = overlayBox.state == .on
     }
     @objc private func toggleSound() {
         model?.soundEnabled = soundBox.state == .on

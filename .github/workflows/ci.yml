@@ -21,4 +21,4 @@ jobs:
       - name: Build
         run: swift build
       - name: Test
-        run: swift test --filter SkipPolicyTests
+        run: swift test

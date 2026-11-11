@@ -58,7 +58,7 @@ final class TimerModel {
     private(set) var isSkipBlocked = false
 
     private var skipPolicy: SkipPolicy
-    private var endDate = Date()
+    private var deadline = Countdown()
     private var ticker: Timer?
     private var remainingWhenPaused: TimeInterval = 25 * 60
     private var phaseBeforePause: TimerPhase = .work
@@ -68,6 +68,7 @@ final class TimerModel {
     private var lastHexagramNumber = -1
 
     private static let consecutiveSkipKey = "consecutiveSkipCount"
+    private static let forcedRestPendingKey = "forcedRestPending"
 
     var workDuration: TimeInterval { TimeInterval(workMinutes * 60) }
     var restDuration: TimeInterval { TimeInterval(restMinutes * 60) }
@@ -82,6 +83,7 @@ final class TimerModel {
     var canDeferRest: Bool { phase == .rest && !isSkipBlocked }
     var canPause: Bool { phase != .paused && !isForcedRest }
     var canRestartCycle: Bool { !isForcedRest }
+    var canStartRest: Bool { phase == .work || (phase == .paused && phaseBeforePause == .work) }
 
     var statusBarText: String {
         format(remaining)
@@ -159,7 +161,11 @@ final class TimerModel {
         NotificationService.request()
         syncLaunchAtLoginFromSystem()
         observeSleep()
-        enterWork(playSound: false, notify: false)
+        if UserDefaults.standard.bool(forKey: Self.forcedRestPendingKey) {
+            enterRest(playSound: false, notify: false, force: true)
+        } else {
+            enterWork(playSound: false, notify: false)
+        }
         startTicking()
     }
 
@@ -176,7 +182,7 @@ final class TimerModel {
         // 强制止息时禁止暂停，避免摘掉全屏遮罩或长期停在暂停以回避止息。
         guard !isForcedRest else { return }
         phaseBeforePause = phase
-        remainingWhenPaused = max(0, endDate.timeIntervalSinceNow)
+        remainingWhenPaused = deadline.remaining(at: ProcessInfo.processInfo.systemUptime)
         remaining = remainingWhenPaused
         ticker?.invalidate()
         ticker = nil
@@ -196,7 +202,7 @@ final class TimerModel {
             return
         }
         phase = phaseBeforePause
-        endDate = Date().addingTimeInterval(remaining)
+        deadline.start(duration: remaining, at: ProcessInfo.processInfo.systemUptime)
         startTicking()
         if phase == .rest, overlayEnabled {
             OverlayController.shared.show(model: self)
@@ -206,8 +212,7 @@ final class TimerModel {
 
     func restNow() {
         // 仅从工作（或暂停于工作）进入休息，避免休息态误触重置倒计时。
-        let fromWork = phase == .work || (phase == .paused && phaseBeforePause == .work)
-        guard fromWork else { return }
+        guard canStartRest else { return }
         enterRest(playSound: true, notify: true)
         startTicking()
     }
@@ -227,7 +232,7 @@ final class TimerModel {
         OverlayController.shared.hide()
         phase = .work
         remaining = 5 * 60
-        endDate = Date().addingTimeInterval(remaining)
+        deadline.start(duration: remaining, at: ProcessInfo.processInfo.systemUptime)
         remainingWhenPaused = remaining
         startTicking()
         emit()
@@ -289,7 +294,7 @@ final class TimerModel {
         remaining = duration
         remainingWhenPaused = duration
         if phase != .paused {
-            endDate = Date().addingTimeInterval(duration)
+            deadline.start(duration: duration, at: ProcessInfo.processInfo.systemUptime)
         }
     }
 
@@ -307,7 +312,7 @@ final class TimerModel {
 
     private func tick() {
         guard phase == .work || phase == .rest else { return }
-        remaining = max(0, endDate.timeIntervalSinceNow)
+        remaining = deadline.remaining(at: ProcessInfo.processInfo.systemUptime)
         if remaining <= 0.05 {
             completePhase()
             return
@@ -327,6 +332,7 @@ final class TimerModel {
         } else {
             // 正常完成休息（含强制止息）后清零连续跳过，恢复可「仍行」。
             resetConsecutiveSkips()
+            UserDefaults.standard.removeObject(forKey: Self.forcedRestPendingKey)
             isSkipBlocked = false
             enterWork(playSound: true, notify: true)
         }
@@ -336,7 +342,7 @@ final class TimerModel {
         OverlayController.shared.hide()
         phase = .work
         remaining = workDuration
-        endDate = Date().addingTimeInterval(remaining)
+        deadline.start(duration: remaining, at: ProcessInfo.processInfo.systemUptime)
         remainingWhenPaused = remaining
         if playSound, soundEnabled {
             SoundPlayer.playWorkStart()
@@ -351,12 +357,15 @@ final class TimerModel {
         emit()
     }
 
-    private func enterRest(playSound: Bool, notify: Bool) {
+    private func enterRest(playSound: Bool, notify: Bool, force: Bool = false) {
         // 连续仍行满四次后，本次休息不可跳过；额度在休息正常结束时消耗清零。
-        isSkipBlocked = skipPolicy.isSkipBlocked
+        isSkipBlocked = force || skipPolicy.isSkipBlocked
+        if isSkipBlocked {
+            UserDefaults.standard.set(true, forKey: Self.forcedRestPendingKey)
+        }
         phase = .rest
         remaining = restDuration
-        endDate = Date().addingTimeInterval(remaining)
+        deadline.start(duration: remaining, at: ProcessInfo.processInfo.systemUptime)
         remainingWhenPaused = remaining
         if overlayEnabled {
             OverlayController.shared.show(model: self)
@@ -405,7 +414,7 @@ final class TimerModel {
             return
         }
         runningBeforeSleep = true
-        remainingWhenPaused = max(0, endDate.timeIntervalSinceNow)
+        remainingWhenPaused = deadline.remaining(at: ProcessInfo.processInfo.systemUptime)
         remaining = remainingWhenPaused
         ticker?.invalidate()
         ticker = nil
@@ -416,7 +425,7 @@ final class TimerModel {
         guard runningBeforeSleep else { return }
         runningBeforeSleep = false
         remaining = remainingWhenPaused
-        endDate = Date().addingTimeInterval(remaining)
+        deadline.start(duration: remaining, at: ProcessInfo.processInfo.systemUptime)
         startTicking()
         // 睡眠期间屏幕配置可能变化；若在休息且应显示遮罩却不可见，重建。
         if phase == .rest, overlayEnabled, !OverlayController.shared.isVisible {
